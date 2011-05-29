@@ -3,6 +3,22 @@
 /* 
 	Debug class by Kasheftin
 
+		v. 0.13 (2011.05.29)
+			DEBUG::log("Yo lo lo!!!",$ar1,$ar2); - displays message, then print_r($ar1) then print_r($ar2)
+
+			DEBUG::logStart(md5($query),$query,$opts);
+			DEBUG::logEnd(md5($query),"ok we've done this query"); - displays timing, then $query, then $opts, and then the last message
+
+			DEBUG::log("Very long debug string .....","LONG");
+			DEBUG::log("Short debug","SHORT"); - by default (in ALL mode) displays all logs, in LONG mode displays only the first, in SHORT mode displays only the second one
+
+			DEBUG::log("Very long debug",$ar1,$ar2,$ar3,"LONG"); - also should work
+
+			DEBUG::log(array("message"=>"some message","mode"=>"SHORT")) - aldo should work
+
+			DEBUG::log_start(array("id"=>"someid","message"=>array("some query",$ar1,$ar2),"mode"=>"LONG"));
+			DEBUG::log_end(array("id"=>"someid","message"=>"Ok here we've done")); - also should work
+
 		v. 0.12 (2010.12.01)
 			- Debug mode: all, important, none added.
 		v. 0.11 (2010.11.23)
@@ -14,13 +30,24 @@
 class Debug
 {
 	static protected $oInstance = null;
-	protected $start = null;
-	protected $end = null;
-	protected $dta = array();		// That is for assoc-dt-pointers.
-	protected $dts = array();		// That is for default (numeric) dt-pointers.
-	protected $log = array();
-	protected $opts = array();
-	protected $modes = array("all","important");
+	
+	protected $data = array();		// Timings and debugs are stored here
+
+	protected $opts = array(
+		"mode" => "ALL",			// ALL, SHORT, LONG, IMPORTANT, and so on
+		"modes" => "ALL,SHORT,LONG,IMPORTANT",	// List of all available modes
+		"realtime" => 0,			// direct output to stdout with ob_flush and flush is turned off by default
+	);
+
+	protected $synonyms = array(
+		"ls,logstart,log_start" => array("logstart_call","id,*,mode"),
+		"le,logend,log_end" => array("logend_call","id,*,mode"),
+		"l,log" => array("log_call","*,mode"),
+		"setopt,setopts" => "setopt_call",
+	);
+
+
+
  
 	static public function getInstance() 
 	{
@@ -36,153 +63,177 @@ class Debug
 	}
 	public function __clone() { }
 
-	protected function __construct() 
-	{
-		$this->opts["debug"] = "text"; 
-		$this->opts["direct_output"] = false;
-		$this->opts["mode"] = "all";
-	}
 
-	static public function set()
+	static public function __call($m,$a)
 	{
 		$o = self::getInstance();
 
+		$ar = $o->find_method($m);
+		
+		if ($ar["template"])
+			$a = $o->parse_args($a,$ar["template"]);
+
+		if (!method_exists(self,$ar["method"]))
+			throw new Exception("Method " . $ar["method"] . ", m=" . $m . " doesn't exists in " . __CLASS__);
+
+		$o->$m($a);
+	}
+
+
+	static public function display($id = null)
+	{
+		$o = self::getInstance();
+
+		if (isset($id))
+		{
+			if ($o->opts["realtime"]))
+			{
+				echo $o->get_logline($id);
+				ob_flush();
+				flush();
+			}
+		}
+		else
+			$o->display_logblock();
+	}
+
+
+	protected function setopt_call()
+	{
 		$args = func_get_args();
-		if (count($args) == 2)
+		if (count($args) == 2 && is_string($args[0]))
 			$args = array(0=>array($args[0]=>$args[1]));
 		elseif (count($args) == 1 && is_array($args[0])) { }
-		else return self::log("Incorrect opts",__METHOD__);
-
+		else return self::log("Incorrect opts",$args);
 		foreach($args[0] as $i => $v)
-			$o->opts[$i] = $v;
+			$this->opts[$i] = $v;
 	}
 
-	static public function begin()
+
+	protected function find_method($m)
 	{
-		$o = self::getInstance();
-		$o->start = $o->t();
-	}
-
-	static public function start()
-	{
-		$o = self::getInstance();
-		$o->start = $o->t();
-	}
-
-	static public function end()
-	{
-		$o = self::getInstance();
-		$o->end = $o->t();
-	}
-
-	static public function finish()
-	{
-		$o = self::getInstance();
-		$o->end = $o->t();
-	}
-
-	static public function log()
-	{
-		$o = self::getInstance();
-
-		$args = func_get_args();
-		if (count($args) == 2)
-		{
-			$message = $args[0];
-			$type = $args[1];
-		}
-		elseif (count($args) == 1 && is_array($args[0]))
-		{
-			foreach($args[0] as $i => $v)
-				${$i} = $v;
-		}
-		elseif (count($args) == 1)
-		{
-			$message = $args[0];
-		}
-		elseif (count($args) == 3)
-		{
-			if (in_array($args[2],$o->modes))
-				$mode = $args[2];
-			else
-				$dt_pointer = $args[2];
-			$message = $args[0];
-			$type = $args[1];
-		}
-		else return self::log("Incorrect opts",__METHOD__);
-
-		$ar = array("message"=>$message,"type"=>$type,"time"=>$o->t(),"mode"=>($mode?$mode:$o->modes[0]));
-
-		if ($dt_pointer || $use_dt_pointer)
-		{
-			if ($dt_pointer)
+		foreach($this->synonyms as $i => $v)
+			if (stripos(',,'.$i.',',','.$m.','))
 			{
-				$ar["time_start"] = $o->dta[$dt_pointer];
-				unset($o->dta[$dt_pointer]);
+				if (is_array($v))
+					return array("method"=>$v[0],"template"=>$v[1]);
+				else
+					return array("method"=>$v);
 			}
-			else
-				$ar["time_start"] = array_pop($o->dts);
-		}
-
-		$o->log[] = $ar;
-
-		if ($o->opts["direct_output"] && ($o->opts["mode"] == "all" || ($o->opts["mode"] == "important" && $ar["mode"] == "important")))
-			$o->direct_out($ar);
+		return array("method"=>$m);
 	}
 
-	static public function log_start($dt_pointer=null)
+
+	protected function parse_args($args,$template)
 	{
-		$o = self::getInstance();
-		if ($dt_pointer)
-			$o->dta[$dt_pointer] = $o->t();
-		else
-			$o->dts[] = $o->t();
-	}
-
-	static public function log_end($message,$type,$dt_pointer=null)
-	{
-		self::log(array("message"=>$message,"type"=>$type,"dt_pointer"=>$dt_pointer,"use_dt_pointer"=>1));
-	}
-
-	static public function out($format=null)
-	{
-		$o = self::getInstance();
-
-		$out = "FULLTIME: " . ($o->end - $o->start);
-
-		if (!$o->opts["direct_output"])
+		$all_vars = $before_vars = $after_vars = array();
+		$ar = explode(",",$template);
+		$b = 0;
+		foreach($ar as $v)
 		{
-			foreach($o->log as $ar)
-				$out .= $o->out_one($ar);
+			if ($v == "*")
+			{
+				$b = 1;
+				continue;
+			}
+			elseif ($b)
+				$after_vars[] = $v;
+			else
+				$before_vars[] = $v;
+			$all_vars[] = $v;
 		}
 
-		if ($format == "html" || $o->opts["format"] == "html")
-			$out = "<div style='margin: 10px; border: 1px solid #dedede; padding: 5px; font-size: 0.85em; text-align: left;'><strong>DEBUG INFO</strong><pre>\n\n" . $out . "\n\n</pre></div>";
-		else
-			$out = "\n\n<!--\n=====DEBUG INFO=========\n\n" . $out . "\n\n=====DEBUG INFO END=====\n-->\n";
+		if (is_array($args[0]))
+			foreach($all_vars as $v)
+				if (isset($args[0][$v])) return $args[0];
 
+		$out = array();
+		foreach($before_vars as $v)
+			$out[$v] = array_pop($args);
+		array_reverse($args);
+		array_reverse($after_vars);
+		foreach($after_vars as $v)
+			$out[$v] = array_pop($args);
+		array_reverse($args);
+
+		if ($args && is_array($args))
+			foreach($args as $v)
+				$out["*"][] = $v;
+		
 		return $out;
 	}
 
-	protected function direct_out($ar)
+
+	protected function log_call($a)
 	{
-		$out = $this->out_one($ar);
-		if ($this->opts["format"] == "html")
-			$out = "<pre>" . $out . "\n</pre>\n";
-		else
-			$out .= "\n" . $out . "\n";
+		$id = $this->t();
+		$this->data[$id] = array("dt"=>$id,"data"=>$a["*"],"mode"=>$a["mode"]);
+		$this->display($id);
+	}
+
+
+	protected function logstart_call($a)
+	{
+		if (!$a["id"]) return self::log("Incorrect opts, logstart id not found",$a);
+		$this->data[$a["id"]] = array("dt_start"=>$this->t(),"data"=>$a["*"],"mode"=>$a["mode"]);
+	}
+
+
+	protected function logend_call($a)
+	{
+		if (!$ar["id"]) return self::log("Incorrect opts, logend id not found",$a);
+
+		$this->data[$a["id"]]["dt_end"] = $this->t();
+		
+		if ($a["*"] && is_array($a["*"]))
+			foreach($a["*"] as $v)
+				$this->data[$a["id"]]["data"][] = $v;
+
+		$this->display($ar["id"]);
+	}
+
+
+	protected function get_logline($id)
+	{
+		$ar = $this->data[$id];
+		if (!$ar) return null;
+		if ($ar["mode"] && $ar["mode"] != "ALL" && $this->opts["mode"] && $this->opts["mode"] != "ALL" && $ar["mode"] != $this->opts["mode"]) return null;
+
+		$out = "\n";
+		if ($ar["dt_start"] && $ar["dt_end"])
+			$out .= "[" .  sprintf("%01.4f",$ar["dt_end"]-$ar["dt_start"]) . "]";
+
+		foreach($ar["data"] as $v)
+		{
+			if (is_array($v)) $v = preg_replace("/[\r\t\n]/","",print_r($v,1));
+			$out .= trim($v) . "\n";
+		}
+
+		return $out;
+	}
+	
+
+	protected function display_logblock()
+	{
+		$min_dt = $this->t();
+		$max_dt = 0;
+
+		foreach($this->data as $id => $rw)
+		{
+			if ($rw["dt"] && $min_dt > $rw["dt"]) $min_dt = $rw["dt"];
+			if ($rw["dt"] && $max_dt < $rw["dt"]) $max_dt = $rw["dt"];
+			if ($rw["dt_start"] && $min_dt > $rw["dt_start"]) $min_dt = $rw["dt_start"];
+			if ($rw["dt_end"] && $max_dt < $rw["dt_end"]) $max_dt = $rw["dt_end"];
+
+			$out .= $this->get_logline($id);
+		}
+
+		echo "<!--\n";
+		echo "FULLTIME: " . sprintf("%01.4f",$max_dt - $min_dt) . "\n";
 		echo $out;
+		echo "-->\n";
 	}
 
-	protected function out_one($ar)
-	{
-		$out = "\n" . ($ar[type]?"[" . $ar[type] . "] ":"") . ($ar[time_start]?"[" . sprintf("%01.4f",$ar[time]-$ar[time_start]) . "] ":"");
-		if (is_array($ar[message]))
-			$out .= preg_replace("/[\r\t\n]/","",print_r($ar[message],1));
-		else
-			$out .= $ar[message];
-		return $out;
-	}
 
 	protected function t()
 	{

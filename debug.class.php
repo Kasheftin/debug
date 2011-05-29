@@ -158,8 +158,8 @@ class Debug
 			else
 				$out[$v] = array_shift($args);
 		}
-		array_reverse($args);
-		array_reverse($after_vars);
+		$args = array_reverse($args);
+		$after_vars = array_reverse($after_vars);
 		foreach($after_vars as $v)
 		{
 			if ($v == "mode")
@@ -170,7 +170,7 @@ class Debug
 			else
 				$out[$v] = array_shift($args);
 		}
-		array_reverse($args);
+		$args = array_reverse($args);
 
 		if ($args && is_array($args))
 			foreach($args as $v)
@@ -232,9 +232,13 @@ class Debug
 
 		$out = "";
 		if (isset($ar["dt_start"]) && isset($ar["dt_end"]))
-			$out .= "[" .  sprintf("%01.4f",$ar["dt_end"]-$ar["dt_start"]) . "] ";
-		else
-			$out .= "[-] ";
+			$out .= "[" .  sprintf("%01.4f",$ar["dt_end"]-$ar["dt_start"]) . "]";
+		if ($ar["mode"] && !$this->opts["mode"])
+			$out .= "[" . $ar["mode"] . "]";
+		if (!$out)
+			$out .= "[-]";
+		$out .= " ";
+
 
 		$tmp = $this->tostr($ar["data"]);
 

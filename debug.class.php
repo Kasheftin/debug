@@ -31,7 +31,8 @@ class Debug
 {
 	static protected $oInstance = null;
 	
-	protected $data = array();		// Timings and debugs are stored here
+	protected $data = array();		// Debugs are stored here
+	protected $data_timings = array();	// Timings are stored here
 
 	protected $opts = array(
 		"mode" => "ALL",			// ALL, SHORT, LONG, IMPORTANT, and so on
@@ -64,19 +65,19 @@ class Debug
 	public function __clone() { }
 
 
-	static public function __call($m,$a)
+	static public function __callStatic($m,$a)
 	{
 		$o = self::getInstance();
 
 		$ar = $o->find_method($m);
 		
-		if ($ar["template"])
+		if (isset($ar["template"]))
 			$a = $o->parse_args($a,$ar["template"]);
 
-		if (!method_exists(self,$ar["method"]))
+		if (!method_exists($o,$ar["method"]))
 			throw new Exception("Method " . $ar["method"] . ", m=" . $m . " doesn't exists in " . __CLASS__);
 
-		$o->$m($a);
+		$o->$ar["method"]($a);
 	}
 
 
@@ -86,7 +87,7 @@ class Debug
 
 		if (isset($id))
 		{
-			if ($o->opts["realtime"]))
+			if ($o->opts["realtime"])
 			{
 				echo $o->get_logline($id);
 				ob_flush();
@@ -98,9 +99,8 @@ class Debug
 	}
 
 
-	protected function setopt_call()
+	protected function setopt_call($args)
 	{
-		$args = func_get_args();
 		if (count($args) == 2 && is_string($args[0]))
 			$args = array(0=>array($args[0]=>$args[1]));
 		elseif (count($args) == 1 && is_array($args[0])) { }
@@ -149,47 +149,78 @@ class Debug
 
 		$out = array();
 		foreach($before_vars as $v)
-			$out[$v] = array_pop($args);
+		{
+			if ($v == "mode")
+			{
+				if (stripos(',,'.$this->opts["modes"].',',','.reset($args).','))
+					$out[$v] = array_shift($args);
+			}
+			else
+				$out[$v] = array_shift($args);
+		}
 		array_reverse($args);
 		array_reverse($after_vars);
 		foreach($after_vars as $v)
-			$out[$v] = array_pop($args);
+		{
+			if ($v == "mode")
+			{
+				if (stripos(',,'.$this->opts["modes"].',',','.reset($args).','))
+					$out[$v] = array_shift($args);
+			}
+			else
+				$out[$v] = array_shift($args);
+		}
 		array_reverse($args);
 
 		if ($args && is_array($args))
 			foreach($args as $v)
 				$out["*"][] = $v;
 		
+		if (isset($out["id"]))
+			$out["id"] = (string)$out["id"];
+
 		return $out;
 	}
 
 
 	protected function log_call($a)
 	{
-		$id = $this->t();
-		$this->data[$id] = array("dt"=>$id,"data"=>$a["*"],"mode"=>$a["mode"]);
-		$this->display($id);
+		$id = count($this->data);
+		$this->data[$id] = array("dt"=>$this->t());
+		if (isset($a["*"]))
+			$this->data[$id]["data"] = $a["*"];
+		if (isset($a["mode"]))
+			$this->data[$id]["mode"] = $a["mode"];
+		self::display($id);
 	}
 
 
 	protected function logstart_call($a)
 	{
 		if (!$a["id"]) return self::log("Incorrect opts, logstart id not found",$a);
-		$this->data[$a["id"]] = array("dt_start"=>$this->t(),"data"=>$a["*"],"mode"=>$a["mode"]);
+		$this->data_timings[$a["id"]] = array("dt_start"=>$this->t());
+		if (isset($a["*"]))
+			$this->data_timings[$a["id"]]["data"] = $a["*"];
+		if (isset($a["mode"]))
+			$this->data_timings[$a["id"]]["mode"] = $a["mode"];
 	}
 
 
 	protected function logend_call($a)
 	{
-		if (!$ar["id"]) return self::log("Incorrect opts, logend id not found",$a);
+		if (!$a["id"]) return self::log("Incorrect opts, logend id not found",$a);
 
-		$this->data[$a["id"]]["dt_end"] = $this->t();
+		$this->data_timings[$a["id"]]["dt_end"] = $this->t();
 		
-		if ($a["*"] && is_array($a["*"]))
+		if (isset($a["*"]) && is_array($a["*"]))
 			foreach($a["*"] as $v)
-				$this->data[$a["id"]]["data"][] = $v;
+				$this->data_timings[$a["id"]]["data"][] = $v;
 
-		$this->display($ar["id"]);
+		$id = count($this->data);
+		$this->data[$id] = $this->data_timings[$a["id"]];
+		unset($this->data_timings[$a["id"]]);
+
+		self::display($id);
 	}
 
 
@@ -197,19 +228,22 @@ class Debug
 	{
 		$ar = $this->data[$id];
 		if (!$ar) return null;
-		if ($ar["mode"] && $ar["mode"] != "ALL" && $this->opts["mode"] && $this->opts["mode"] != "ALL" && $ar["mode"] != $this->opts["mode"]) return null;
+		if (isset($ar["mode"]) && $ar["mode"] != "ALL" && isset($this->opts["mode"]) && $this->opts["mode"] != "ALL" && $ar["mode"] != $this->opts["mode"]) return null;
 
-		$out = "\n";
-		if ($ar["dt_start"] && $ar["dt_end"])
-			$out .= "[" .  sprintf("%01.4f",$ar["dt_end"]-$ar["dt_start"]) . "]";
+		$out = "";
+		if (isset($ar["dt_start"]) && isset($ar["dt_end"]))
+			$out .= "[" .  sprintf("%01.4f",$ar["dt_end"]-$ar["dt_start"]) . "] ";
+		else
+			$out .= "[-] ";
 
-		foreach($ar["data"] as $v)
-		{
-			if (is_array($v)) $v = preg_replace("/[\r\t\n]/","",print_r($v,1));
-			$out .= trim($v) . "\n";
-		}
+		$tmp = $this->tostr($ar["data"]);
 
-		return $out;
+		if (preg_match("/\n/",$tmp))
+			$out .= preg_replace("/\n/","\n" . str_repeat(" ",strlen($out)),$tmp);
+		else
+			$out .= $tmp;
+
+		return trim($out) . "\n";
 	}
 	
 
@@ -217,27 +251,39 @@ class Debug
 	{
 		$min_dt = $this->t();
 		$max_dt = 0;
+		$out = "";
 
 		foreach($this->data as $id => $rw)
 		{
-			if ($rw["dt"] && $min_dt > $rw["dt"]) $min_dt = $rw["dt"];
-			if ($rw["dt"] && $max_dt < $rw["dt"]) $max_dt = $rw["dt"];
-			if ($rw["dt_start"] && $min_dt > $rw["dt_start"]) $min_dt = $rw["dt_start"];
-			if ($rw["dt_end"] && $max_dt < $rw["dt_end"]) $max_dt = $rw["dt_end"];
+			if (isset($rw["dt"]) && $min_dt > $rw["dt"]) $min_dt = $rw["dt"];
+			if (isset($rw["dt"]) && $max_dt < $rw["dt"]) $max_dt = $rw["dt"];
+			if (isset($rw["dt_start"]) && $min_dt > $rw["dt_start"]) $min_dt = $rw["dt_start"];
+			if (isset($rw["dt_end"]) && $max_dt < $rw["dt_end"]) $max_dt = $rw["dt_end"];
 
 			$out .= $this->get_logline($id);
 		}
 
-		echo "<!--\n";
+		echo "\n<!--\n";
 		echo "FULLTIME: " . sprintf("%01.4f",$max_dt - $min_dt) . "\n";
-		echo $out;
-		echo "-->\n";
+		echo trim($out);
+		echo "\n-->\n";
 	}
 
 
 	protected function t()
 	{
 		list($usec, $sec) = explode(" ",microtime()); return ((float)$usec + (float)$sec); 
+	}
+
+	protected function tostr($ar)
+	{
+		$str = "";
+		foreach($ar as $v)
+		{
+			if (is_array($v)) $v = preg_replace("/[\r\n\t]/","",print_r($v,1));
+			$out .= trim($v) . "\n";
+		}
+		return $out;
 	}
 }
 

@@ -44,7 +44,7 @@ class Debug
 		"ls,logstart,log_start" => array("logstart_call","id,*,mode"),
 		"le,logend,log_end" => array("logend_call","id,*,mode"),
 		"l,log" => array("log_call","*,mode"),
-		"so,setopt,setopts,set_opt,set_opts" => "setopt_call",
+		"so,setopt,setopts,set_opt,set_opts,setconfig,set_config" => "setopt_call",
 	);
 
 

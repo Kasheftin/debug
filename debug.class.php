@@ -44,7 +44,7 @@ class Debug
 		"ls,logstart,log_start" => array("logstart_call","id,*,mode"),
 		"le,logend,log_end" => array("logend_call","id,*,mode"),
 		"l,log" => array("log_call","*,mode"),
-		"setopt,setopts" => "setopt_call",
+		"so,setopt,setopts,set_opt,set_opts" => "setopt_call",
 	);
 
 
@@ -239,7 +239,6 @@ class Debug
 			$out .= "[-]";
 		$out .= " ";
 
-
 		$tmp = $this->tostr($ar["data"]);
 
 		if (preg_match("/\n/",$tmp))
@@ -253,17 +252,13 @@ class Debug
 
 	protected function display_logblock()
 	{
-		$min_dt = $this->t();
-		$max_dt = 0;
+		$min_dt = $max_dt = 0;
 		$out = "";
 
 		foreach($this->data as $id => $rw)
 		{
-			if (isset($rw["dt"]) && $min_dt > $rw["dt"]) $min_dt = $rw["dt"];
-			if (isset($rw["dt"]) && $max_dt < $rw["dt"]) $max_dt = $rw["dt"];
-			if (isset($rw["dt_start"]) && $min_dt > $rw["dt_start"]) $min_dt = $rw["dt_start"];
-			if (isset($rw["dt_end"]) && $max_dt < $rw["dt_end"]) $max_dt = $rw["dt_end"];
-
+			$min_dt = $this->min($min_dt,$rw["dt"],$rw["dt_start"],$rw["dt_end"]);
+			$max_dt = $this->max($max_dt,$rw["dt"],$rw["dt_start"],$rw["dt_end"]);
 			$out .= $this->get_logline($id);
 		}
 
@@ -274,10 +269,31 @@ class Debug
 	}
 
 
+	protected function min()
+	{
+		$args = func_get_args();
+		$min = 0;
+		foreach($args as $v)
+			if ($v && ($min > $v || !$min)) $min = $v;
+		return $min;
+	}
+
+	
+	protected function max()
+	{
+		$args = func_get_args();
+		$max = 0;
+		foreach($args as $v)
+			if ($v && $max < $v) $max = $v;
+		return $max;
+	}
+
+
 	protected function t()
 	{
 		list($usec, $sec) = explode(" ",microtime()); return ((float)$usec + (float)$sec); 
 	}
+
 
 	protected function tostr($ar)
 	{

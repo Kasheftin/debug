@@ -35,9 +35,9 @@ class Debug
 	protected $data_timings = array();	// Timings are stored here
 
 	protected $opts = array(
-		"mode" => "ALL",			// ALL, SHORT, LONG, IMPORTANT, and so on
-		"modes" => "ALL,SHORT,LONG,IMPORTANT",	// List of all available modes
-		"realtime" => 0,			// direct output to stdout with ob_flush and flush is turned off by default
+		"mode" => "SHORT|IMPORTANT|MAJOR",			// ALL, SHORT, LONG, IMPORTANT, and so on. Can be combined with | or comma, eg. SHORT|SQL
+		"modes" => "ALL,SHORT,LONG,IMPORTANT,MINOR,MAJOR,SQL",	// List of all available modes
+		"realtime" => 0,					// direct output to stdout with ob_flush and flush is turned off by default
 	);
 
 	protected $synonyms = array(
@@ -152,8 +152,10 @@ class Debug
 		{
 			if ($v == "mode")
 			{
-				if (stripos(',,'.$this->opts["modes"].',',','.reset($args).','))
-					$out[$v] = array_shift($args);
+				$vals = preg_split("/[&,|]/",array_shift($args));
+				foreach($vals as $val)
+					if (stripos(',,'.$this->opts["modes"].',',','.$val.','))
+						$out[$v][$val] = 1;
 			}
 			else
 				$out[$v] = array_shift($args);
@@ -164,8 +166,10 @@ class Debug
 		{
 			if ($v == "mode")
 			{
-				if (stripos(',,'.$this->opts["modes"].',',','.reset($args).','))
-					$out[$v] = array_shift($args);
+				$vals = preg_split("/[&,|]/",array_shift($args));
+				foreach($vals as $val)
+					if (stripos(',,'.$this->opts["modes"].',',','.$val.','))
+						$out[$v][$val] = 1;
 			}
 			else
 				$out[$v] = array_shift($args);
@@ -215,6 +219,9 @@ class Debug
 		if (isset($a["*"]) && is_array($a["*"]))
 			foreach($a["*"] as $v)
 				$this->data_timings[$a["id"]]["data"][] = $v;
+		if (isset($a["mode"]))
+			foreach($a["mode"] as $i => $v)
+				$this->data_timings[$a["id"]]["mode"][$i] = $v;
 
 		$id = count($this->data);
 		$this->data[$id] = $this->data_timings[$a["id"]];
@@ -228,13 +235,23 @@ class Debug
 	{
 		$ar = $this->data[$id];
 		if (!$ar) return null;
-		if (isset($ar["mode"]) && $ar["mode"] != "ALL" && isset($this->opts["mode"]) && $this->opts["mode"] != "ALL" && $ar["mode"] != $this->opts["mode"]) return null;
+
+		$b = 0;
+		if ($this->opts["mode"] == "ALL") $b = 1;
+		$modes = preg_split("/[&,|]/",$this->opts["mode"]);
+		foreach($modes as $mode)
+			if ($ar["mode"][$mode])
+			{
+				$b = 1;
+				break;
+			}
+		if (!$b) return null;
 
 		$out = "";
 		if (isset($ar["dt_start"]) && isset($ar["dt_end"]))
 			$out .= "[" .  sprintf("%01.4f",$ar["dt_end"]-$ar["dt_start"]) . "]";
-		if ($ar["mode"] && !$this->opts["mode"])
-			$out .= "[" . $ar["mode"] . "]";
+		if ($ar["mode"])
+			$out .= "[" . join("|",array_keys($ar["mode"])) . "]";
 		if (!$out)
 			$out .= "[-]";
 		$out .= " ";

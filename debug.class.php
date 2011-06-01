@@ -14,11 +14,6 @@
 
 			DEBUG::log("Very long debug",$ar1,$ar2,$ar3,"LONG"); - also should work
 
-			DEBUG::log(array("message"=>"some message","mode"=>"SHORT")) - aldo should work
-
-			DEBUG::log_start(array("id"=>"someid","message"=>array("some query",$ar1,$ar2),"mode"=>"LONG"));
-			DEBUG::log_end(array("id"=>"someid","message"=>"Ok here we've done")); - also should work
-
 		v. 0.12 (2010.12.01)
 			- Debug mode: all, important, none added.
 		v. 0.11 (2010.11.23)
@@ -35,21 +30,19 @@ class Debug
 	protected $data_timings = array();	// Timings are stored here
 
 	protected $opts = array(
-		"mode" => "SHORT|IMPORTANT|MAJOR",			// ALL, SHORT, LONG, IMPORTANT, and so on. Can be combined with | or comma, eg. SHORT|SQL
+		"mode" => "SHORT|IMPORTANT|MAJOR",			// ALL, SHORT, LONG, IMPORTANT, and so on. + NOMODE - when MODE is not specified. Can be combined with | or comma, eg. SHORT|SQL
 		"modes" => "ALL,SHORT,LONG,IMPORTANT,MINOR,MAJOR,SQL",	// List of all available modes
 		"realtime" => 0,					// direct output to stdout with ob_flush and flush is turned off by default
 	);
 
 	protected $synonyms = array(
-		"ls,logstart,log_start" => array("logstart_call","id,*,mode"),
-		"le,logend,log_end" => array("logend_call","id,*,mode"),
-		"l,log" => array("log_call","*,mode"),
+		"ls,logstart,log_start" => "logstart_call",
+		"le,logend,log_end" => "logend_call",
+		"l,log" => "log_call",
 		"so,setopt,setopts,set_opt,set_opts,setconfig,set_config" => "setopt_call",
 	);
 
 
-
- 
 	static public function getInstance() 
 	{
 		if (isset(self::$oInstance) and (self::$oInstance instanceof self)) 
@@ -68,16 +61,10 @@ class Debug
 	static public function __callStatic($m,$a)
 	{
 		$o = self::getInstance();
-
-		$ar = $o->find_method($m);
-		
-		if (isset($ar["template"]))
-			$a = $o->parse_args($a,$ar["template"]);
-
-		if (!method_exists($o,$ar["method"]))
-			throw new Exception("Method " . $ar["method"] . ", m=" . $m . " doesn't exists in " . __CLASS__);
-
-		$o->$ar["method"]($a);
+		$m = $o->find_method($m);
+		if (!method_exists($o,$m))
+			throw new Exception("Method " . $m . " doesn't exist");
+		$o->$m($a);
 	}
 
 
@@ -114,120 +101,82 @@ class Debug
 	{
 		foreach($this->synonyms as $i => $v)
 			if (stripos(',,'.$i.',',','.$m.','))
-			{
-				if (is_array($v))
-					return array("method"=>$v[0],"template"=>$v[1]);
-				else
-					return array("method"=>$v);
-			}
-		return array("method"=>$m);
+				return $v;
+		return $m;
 	}
 
 
-	protected function parse_args($args,$template)
+	protected function parse_mode($v)
 	{
-		$all_vars = $before_vars = $after_vars = array();
-		$ar = explode(",",$template);
-		$b = 0;
-		foreach($ar as $v)
-		{
-			if ($v == "*")
-			{
-				$b = 1;
-				continue;
-			}
-			elseif ($b)
-				$after_vars[] = $v;
-			else
-				$before_vars[] = $v;
-			$all_vars[] = $v;
-		}
-
-		if (is_array($args[0]))
-			foreach($all_vars as $v)
-				if (isset($args[0][$v])) return $args[0];
-
 		$out = array();
-		foreach($before_vars as $v)
-		{
-			if ($v == "mode")
-			{
-				$vals = preg_split("/[&,|]/",array_shift($args));
-				foreach($vals as $val)
-					if (stripos(',,'.$this->opts["modes"].',',','.$val.','))
-						$out[$v][$val] = 1;
-			}
+		$vals = preg_split("/[&,|]/",$v);
+		foreach($vals as $val)
+			if (stripos(',,'.$this->opts["modes"].',',','.$val.','))
+				$out[$val] = 1;
 			else
-				$out[$v] = array_shift($args);
-		}
-		$args = array_reverse($args);
-		$after_vars = array_reverse($after_vars);
-		foreach($after_vars as $v)
-		{
-			if ($v == "mode")
-			{
-				$vals = preg_split("/[&,|]/",array_shift($args));
-				foreach($vals as $val)
-					if (stripos(',,'.$this->opts["modes"].',',','.$val.','))
-						$out[$v][$val] = 1;
-			}
-			else
-				$out[$v] = array_shift($args);
-		}
-		$args = array_reverse($args);
-
-		if ($args && is_array($args))
-			foreach($args as $v)
-				$out["*"][] = $v;
-		
-		if (isset($out["id"]))
-			$out["id"] = (string)$out["id"];
-
+				return array();
 		return $out;
 	}
 
 
 	protected function log_call($a)
 	{
+		// The last parameter might be MODE
+		if ($mode = $this->parse_mode(end($a)))
+			array_pop($a);
+
 		$id = count($this->data);
-		$this->data[$id] = array("dt"=>$this->t());
-		if (isset($a["*"]))
-			$this->data[$id]["data"] = $a["*"];
-		if (isset($a["mode"]))
-			$this->data[$id]["mode"] = $a["mode"];
+		$this->data[$id] = array("dt"=>$this->t(),"mode"=>$mode);
+
+		foreach($a as $v)
+			$this->data[$id]["data"][] = $v;
+		
 		self::display($id);
 	}
 
 
 	protected function logstart_call($a)
 	{
-		if (!$a["id"]) return self::log("Incorrect opts, logstart id not found",$a);
-		$this->data_timings[$a["id"]] = array("dt_start"=>$this->t());
-		if (isset($a["*"]))
-			$this->data_timings[$a["id"]]["data"] = $a["*"];
-		if (isset($a["mode"]))
-			$this->data_timings[$a["id"]]["mode"] = $a["mode"];
+		// The first parameter MUST be some ID
+		$id = array_shift($a);
+
+		// The last parameter might be MODE
+		if ($mode = $this->parse_mode(end($a)))
+			array_pop($a);
+
+		if (!$id) return self::log("Incorrect opts, log id not found",$a);
+
+		$this->data_timings[$id] = array("dt_start"=>$this->t(),"mode"=>$mode);
+
+		foreach($a as $v)
+			$this->data_timings[$id]["data"][] = $v;
 	}
 
 
 	protected function logend_call($a)
 	{
-		if (!$a["id"]) return self::log("Incorrect opts, logend id not found",$a);
+		// The first parameter MUST be some ID
+		$id = array_shift($a);
 
-		$this->data_timings[$a["id"]]["dt_end"] = $this->t();
+		// The last parameter might be MODE
+		if ($mode = $this->parse_mode(end($a)))
+			array_pop($a);
+
+		if (!$id) return self::log("Incorrect opts, log id not found",$a);
+
+		$this->data_timings[$id]["dt_end"] = $this->t();
 		
-		if (isset($a["*"]) && is_array($a["*"]))
-			foreach($a["*"] as $v)
-				$this->data_timings[$a["id"]]["data"][] = $v;
-		if (isset($a["mode"]))
-			foreach($a["mode"] as $i => $v)
-				$this->data_timings[$a["id"]]["mode"][$i] = $v;
+		foreach($a as $v)
+			$this->data_timings[$id]["data"][] = $v;
+		
+		foreach($mode as $i => $v)
+			$this->data_timings[$id]["mode"][$i] = $v;
 
-		$id = count($this->data);
-		$this->data[$id] = $this->data_timings[$a["id"]];
+		$data_id = count($this->data);
+		$this->data[$data_id] = $this->data_timings[$id];
 		unset($this->data_timings[$a["id"]]);
 
-		self::display($id);
+		self::display($data_id);
 	}
 
 
@@ -237,14 +186,10 @@ class Debug
 		if (!$ar) return null;
 
 		$b = 0;
-		if ($this->opts["mode"] == "ALL") $b = 1;
 		$modes = preg_split("/[&,|]/",$this->opts["mode"]);
 		foreach($modes as $mode)
-			if ($ar["mode"][$mode])
-			{
+			if ($mode == "ALL" || $ar["mode"][$mode] || ($mode == "NOMODE" && !count($ar["mode"])))
 				$b = 1;
-				break;
-			}
 		if (!$b) return null;
 
 		$out = "";

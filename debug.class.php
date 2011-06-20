@@ -30,9 +30,10 @@ class Debug
 	protected $data_timings = array();	// Timings are stored here
 
 	protected $opts = array(
-		"mode" => "SHORT|IMPORTANT|MAJOR",			// ALL, SHORT, LONG, IMPORTANT, and so on. + NOMODE - when MODE is not specified. Can be combined with | or comma, eg. SHORT|SQL
-		"modes" => "ALL,SHORT,LONG,IMPORTANT,MINOR,MAJOR,SQL",	// List of all available modes
-		"realtime" => 0,					// direct output to stdout with ob_flush and flush is turned off by default
+		"mode" => "SHORT|IMPORTANT|MAJOR",					// ALL, SHORT, LONG, IMPORTANT, and so on. + NOMODE - when MODE is not specified. Can be combined with | or comma, eg. SHORT|SQL
+		"modes" => "ALL,SHORT,LONG,IMPORTANT,MINOR,MAJOR,SQL,ERROR,REQ",	// List of all available modes
+		"realtime" => 0,							// direct output to stdout with ob_flush and flush is turned off by default
+		"logfile" => null,							// if logfile path is set, all debug out will be copied there
 	);
 
 	protected $synonyms = array(
@@ -40,6 +41,7 @@ class Debug
 		"le,logend,log_end" => "logend_call",
 		"l,log" => "log_call",
 		"so,setopt,setopts,set_opt,set_opts,setconfig,set_config" => "setopt_call",
+		"clean_log,cleanlog,cl" => "clean_log",
 	);
 
 
@@ -72,17 +74,29 @@ class Debug
 	{
 		$o = self::getInstance();
 
-		if (isset($id))
+		$out = "";
+		if (isset($id) && $o->opts["realtime"]) 
+			$out = $o->get_logline($id);
+		elseif (!isset($id)) 
+			$out = $o->display_logblock();
+
+		if ($out)
 		{
-			if ($o->opts["realtime"])
-			{
-				echo $o->get_logline($id);
-				ob_flush();
-				flush();
-			}
+			echo $out;
+			ob_flush();
+			flush();
+			if ($o->opts["logfile"])
+				$o->write2log($out);
 		}
-		else
-			$o->display_logblock();
+	}
+
+
+	protected function clean_log()
+	{
+		if ($this->opts["logfile"])
+		{
+			@unlink($this->opts["logfile"]);
+		}
 	}
 
 
@@ -224,10 +238,24 @@ class Debug
 			$out .= $this->get_logline($id);
 		}
 
-		echo "\n<!--\n";
-		echo "FULLTIME: " . sprintf("%01.4f",$max_dt - $min_dt) . "\n";
-		echo trim($out);
-		echo "\n-->\n";
+		$out = "";
+		$out .= "\n<!--\n";
+		$out .= "FULLTIME: " . sprintf("%01.4f",$max_dt - $min_dt) . "\n";
+		$out .= trim($out);
+		$out .= "\n-->\n";
+
+		return $out;
+	}
+
+
+	protected function write2log($str)
+	{
+		if (!$this->opts["logfile"]) return;
+		if ($f = fopen($this->opts["logfile"],"a"))
+		{
+			fwrite($f,$str);
+			fclose($f);
+		}
 	}
 
 
